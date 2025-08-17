@@ -16,6 +16,8 @@ void killing_thunder_inst(it_thunder_inst_t*);
 void emit_thunder_poof_particle(it_thunder_inst_t*);
 void callback_PcEm_stay_at_inst(void*);
 void render_thunder_inst(it_thunder_inst_t*, VecFx32*, void*);
+void begin_await_thunder_inst(it_thunder_inst_t*);
+void callback_PcEm_stay_at_drv(void*);
 
 it_itemconfig_t cfg_thunder_cloud = {1,1,ITEM_TERESA, 1, 0,1, (void*)0x02102668};
 
@@ -41,7 +43,7 @@ it_item_def_t def_thunder_cloud = {
     (void*)0x021004C4,
     0,
     init_thunder_model,
-    0,
+    1,0,0,0,
     0,
     0x4B0000,
     2,
@@ -95,8 +97,8 @@ asm(R"(
 )");
 
 void* state_table[] = {
-        NULL,                       await_thunder_inst, 
-        shock_thunder_inst,        shocking_thunder_inst, 
+        begin_await_thunder_inst,   await_thunder_inst, 
+        shock_thunder_inst,         shocking_thunder_inst, 
         emit_thunder_poof_particle, killing_thunder_inst
         };
 
@@ -111,7 +113,7 @@ void init_thunder_inst(it_thunder_inst_t* inst){
     sm_init(&inst->stateMachine, state_table, (int)(sizeof(state_table) / sizeof(void*)) >> 1, inst);
     inst->stateMachine.counter = 0;
     inst->lastHitCounter = 0;
-    inst->particleCounter = 0;
+    inst->chargeCounter = 0;
     inst->thunderBeat = 25;
     inst->frameTime = 0;
     inst->texID = 0;
@@ -140,19 +142,34 @@ void update_thunder_inst(it_thunder_inst_t* inst){
     sm_execute(&inst->stateMachine);
 };
 
+void begin_await_thunder_inst(it_thunder_inst_t* inst){
+    /*
+    ENTRY   : TC inst
+    ROLE    : Sets the Y offset of particles during the Await state
+    VERSION : 2025AUG_01
+    AUTHOR  : Perlite
+    */
+    inst->particleOffset = FX32_CONST(1.7) * 4;
+}
+
 void await_thunder_inst(it_thunder_inst_t* inst){
     /*
     ENTRY   : TC inst
     ROLE    : Handles the base state of the TC by emitting particles, changing its texture and making it move slightly verically and changing slightly its scale depending on the state's counters and the TC's age. Also makes the TC change state after some time
-    VERSION : 2025AUG_02
+    VERSION : 2025AUG_05
     AUTHOR  : Perlite
     */
 
-    if (!inst->texTime){
+    if (!inst->texPtcTime){
         inst->texID = 0;
+        if (inst->particleEmitter[0]){
+            ptcm_killEmitter(&inst->particleEmitter[0]);
+            inst->particleEmitter[0] = NULL;
+        }
+        
     } else {
         inst->texID = 1;
-        inst->texTime -=1;
+        inst->texPtcTime -=1;
     }
 
     void* driver = driver_getById((int)inst->targetDriverId);
@@ -169,38 +186,32 @@ void await_thunder_inst(it_thunder_inst_t* inst){
         }
     }
 
-    if (inst->stateMachine.counter > 60*12) {
-        inst->stateMachine.gotoNextState = 1;
-        inst->stateMachine.nextState = 1;
-    }
+    if (inst->stateMachine.counter - inst->chargeCounter >= 80)
+        inst->chargeCounter = inst->stateMachine.counter;
+    
 
-    if (inst->stateMachine.counter - inst->particleCounter > 80){
+    if ((inst->stateMachine.counter == inst->chargeCounter  && inst->stateMachine.counter >= 10) //10 is arbitrary, its just so its not too early
+        || (inst->thunderBeat == 40 && inst->stateMachine.counter - inst->chargeCounter == 20)){
 
-        if (inst->particleEmitter){
-            ptcm_killEmitterDirectSafe(&inst->particleEmitter);
-        }
+        if (inst->particleEmitter[0])
+            ptcm_killEmitter(&inst->particleEmitter[0]);
 
-        inst->particleEmitter = ptcm_createEmitter(94, &inst->inst.position);
-        *(void**)(inst->particleEmitter + 0x90) = callback_PcEm_stay_at_inst;
-        *(it_thunder_inst_t**)(inst->particleEmitter + 0x98) = inst;
-        inst->particleCounter = inst->stateMachine.counter;
-    }
-
-    if (inst->stateMachine.counter == inst->particleCounter && inst->particleEmitter){
         sfx_emit_item_inst(&inst->inst.sfx_emitter, 233, 127, 0);
-        inst->texTime = 10;
-    }
-    if (inst->thunderBeat == 40 && inst->stateMachine.counter - inst->particleCounter == 20){
-        sfx_emit_item_inst(&inst->inst.sfx_emitter, 233, 127, 0);
-        inst->texTime = 10;
-    }
+        inst->texPtcTime = 10;
 
-    if (inst->stateMachine.counter - inst->particleCounter > inst->thunderBeat  && inst->particleEmitter){
-        ptcm_killEmitterDirectSafe(&inst->particleEmitter);
-        inst->particleEmitter = NULL;
+        inst->particleEmitter[0] = ptcm_createFogOffEmitter(1, &inst->inst.position);
+        *(int*)(inst->particleEmitter[0] + 0x2C) -= FX32_CONST(1.7) >> 3;
+
+        *(void**)(inst->particleEmitter[0] + 0x90) = callback_PcEm_stay_at_inst;
+        *(it_thunder_inst_t**)(inst->particleEmitter[0] + 0x98) = inst;
+        *(int*)(inst->particleEmitter[0] + 0x6C) = FX32_CONST(0.3);
     }
     
     if (inst->stateMachine.counter == 60*7) inst->thunderBeat = 40;
+
+    if (inst->stateMachine.counter > 60*12 + 40) {
+        sm_gotoState(&inst->stateMachine, 1);
+    }
 }
 
 void use_thunder_inst(void* item_drag, it_thunder_inst_t* inst){
@@ -238,27 +249,36 @@ void shock_thunder_inst(it_thunder_inst_t* inst){
     /*
     ENTRY   : TC inst
     ROLE    : Shocks the driver and changes the TC's texture
-    VERSION : 2025AUG_02
+    VERSION : 2025AUG_04
     AUTHOR  : Perlite
     */
 
     void* driver = driver_getById(inst->targetDriverId);
     race_startDarkening();
-    //sub_2082E4C(*(u16*)(driver + 0x74)); //Needs update and studying, spawns lightnings for everyone else
+    
     driver_startThunderShrinkEffect(driver);
 
-    if (inst->particleEmitter){
-        ptcm_killEmitterDirectSafe(&inst->particleEmitter);
-        inst->particleEmitter = NULL;
+    if (inst->particleEmitter[0]){
+        ptcm_killEmitter(&inst->particleEmitter[0]);
     }
+    inst->particleEmitter[0] = ptcm_createFogOffEmitter(0, &inst->inst.position);
+    *(void**)(inst->particleEmitter[0] + 0x90) = callback_PcEm_stay_at_inst;
+    *(it_thunder_inst_t**)(inst->particleEmitter[0] + 0x98) = inst;
+
+    inst->particleEmitter[1] = ptcm_createFogOffEmitter(1, &inst->inst.position);
+    *(void**)(inst->particleEmitter[1] + 0x90) = callback_PcEm_stay_at_drv;
+    *(it_thunder_inst_t**)(inst->particleEmitter[1] + 0x98) = inst;
+
+    inst->particleOffset = -FX32_CONST(32 - 2 * 1.7);
     inst->texID = 1;
+    sfx_emit_item_inst(&inst->inst.sfx_emitter, 233, 127, 0);
 }
 
 void shocking_thunder_inst(it_thunder_inst_t* inst){
     /*
     ENTRY   : TC inst
     ROLE    : Handles the TC in its shocking state by making it vibrate faster and changes the state after some time
-    VERSION : 2025AUG_01
+    VERSION : 2025AUG_03
     AUTHOR  : Perlite
     */
 
@@ -267,8 +287,15 @@ void shocking_thunder_inst(it_thunder_inst_t* inst){
     inst->inst.scale.y = FX32_CONST(1.7) + (FX_SinIdx((u16)((inst->frameTime) * 4096)) >> 4);
 
     if (inst->stateMachine.counter > 75){
-        inst->stateMachine.gotoNextState = 1;
-        inst->stateMachine.nextState = 2;
+        if (inst->particleEmitter[0]){
+            ptcm_killEmitter(&inst->particleEmitter[0]);
+            inst->particleEmitter[0] = NULL;
+        }
+        if (inst->particleEmitter[1]){
+            ptcm_killEmitter(&inst->particleEmitter[1]);
+            inst->particleEmitter[1] = NULL;
+        }
+        sm_gotoState(&inst->stateMachine, 2);
     }
 }
 
@@ -276,28 +303,48 @@ void callback_PcEm_stay_at_inst(void* emitter){
     /*
     ENTRY   : Particle emitter
     ROLE    : Makes the PcEm stay at the TC instance
-    VERSION : 2025AUG_01
+    VERSION : 2025AUG_02
     AUTHOR  : Perlite
     */
 
     it_thunder_inst_t* userWork = *(it_thunder_inst_t**)(emitter + 0x98);
     VecFx32* emit_pos =(VecFx32*)(emitter + 0x28);
     emit_pos->x = userWork->inst.position.x >> 4;
-    emit_pos->y = userWork->inst.position.y >> 4;
+    emit_pos->y = (userWork->inst.position.y - userWork->particleOffset) >> 4;
     emit_pos->z = userWork->inst.position.z >> 4;
+}
+
+void callback_PcEm_stay_at_drv(void* emitter){
+    /*
+    ENTRY   : Particle emitter
+    ROLE    : Makes the PcEm stay at the TC's driver
+    VERSION : 2025AUG_01
+    AUTHOR  : Perlite
+    */
+
+    it_thunder_inst_t* userWork = *(it_thunder_inst_t**)(emitter + 0x98);
+    VecFx32* emit_pos =(VecFx32*)(emitter + 0x28);
+
+    void* driver = driver_getById((int)userWork->targetDriverId);
+    VecFx32* drivPos = (VecFx32*)(driver + 0x80);
+
+    emit_pos->x = drivPos->x >> 4;
+    emit_pos->y = drivPos->y >> 4;
+    emit_pos->z = drivPos->z >> 4;
 }
 
 void emit_thunder_poof_particle(it_thunder_inst_t* inst){
     /*
     ENTRY   : TC inst
     ROLE    : Emits a cloud particle to allow a non offputting disappearance of the TC instance
-    VERSION : 2025AUG_01
+    VERSION : 2025AUG_02
     AUTHOR  : Perlite
     */
 
-    inst->particleEmitter = ptcm_createEmitter(97, &inst->inst.position); //maybe 89 ? 97 ? 70 ?
-    *(void**)(inst->particleEmitter + 0x90) = callback_PcEm_stay_at_inst;
-    *(it_thunder_inst_t**)(inst->particleEmitter + 0x98) = inst;
+    inst->particleEmitter[0] = ptcm_createEmitter(97, &inst->inst.position); //maybe 89 ? 97 ? 70 ?
+    *(void**)(inst->particleEmitter[0] + 0x90) = callback_PcEm_stay_at_inst;
+    *(it_thunder_inst_t**)(inst->particleEmitter[0] + 0x98) = inst;
+    inst->particleOffset = 0;
 }
 
 void killing_thunder_inst(it_thunder_inst_t* inst){
@@ -314,9 +361,9 @@ void killing_thunder_inst(it_thunder_inst_t* inst){
     inst->inst.position.y = inst->preYPosition;
     
     if (inst->stateMachine.counter > 60) {
-        if (inst->particleEmitter){
-            ptcm_killEmitterDirectSafe(&inst->particleEmitter);
-            inst->particleEmitter = NULL;
+        if (inst->particleEmitter[0]){
+            ptcm_killEmitterDirectSafe(&inst->particleEmitter[0]);
+            inst->particleEmitter[0] = NULL;
         }
         it_itemsetDestroyItem((it_sItemsets + 0x44 * inst->inst.type), inst);
     }

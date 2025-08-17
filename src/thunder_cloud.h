@@ -26,7 +26,10 @@ typedef struct
     void* field48;
     int field4C;
     void* field50;
-    u32 gap54;
+    u8 gap54;
+    u8 gap55;
+    u8 gap56;
+    u8 gap57;
     void* field58; //related to sound emission?
     int field5C;
     int field60;
@@ -115,12 +118,13 @@ typedef struct{
     u16 targetDriverId;
     u16 thunderBeat;
     u16 lastHitCounter;
-    u16 particleCounter;
-    u32 frameTime;
-    u16 texTime;
+    u16 chargeCounter;
+    u16 frameTime;
+    u16 particleOffset;
+    u16 texPtcTime;
     u16 texID;
     state_machine_t stateMachine;
-    void* particleEmitter;
+    void* particleEmitter[2];
     int preYPosition;
 } it_thunder_inst_t; //Children structure of the item instance structure
 
@@ -140,6 +144,8 @@ extern void sub_2082E4C(u16);
 extern void race_startDarkening();
 extern void driver_startThunderShrinkEffect(void*);
 extern void ptcm_killEmitterDirectSafe(void*);
+extern void ptcm_killEmitter(void*);
+extern void* ptcm_createFogOffEmitter(int, VecFx32*);
 extern void* ptcm_createEmitter(int, VecFx32*);
 extern void sfx_21090C4(void*,int,char,short);
 extern void sub_20F9114(it_item_inst_t*);
