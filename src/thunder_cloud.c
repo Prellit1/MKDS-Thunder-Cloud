@@ -244,7 +244,7 @@ void shock_thunder_inst(it_thunder_inst_t* inst){
 
     void* driver = driver_getById(inst->targetDriverId);
     race_startDarkening();
-    sub_2082E4C(*(u16*)(driver + 0x74)); //Needs update and studying, spawns lightnings for everyone else
+    //sub_2082E4C(*(u16*)(driver + 0x74)); //Needs update and studying, spawns lightnings for everyone else
     driver_startThunderShrinkEffect(driver);
 
     if (inst->particleEmitter){

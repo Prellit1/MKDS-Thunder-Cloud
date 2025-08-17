@@ -6,6 +6,6 @@ The addition of the thunder cloud in Mario Kart DS requires the removal of an it
 ## Credits
 -Rocoloco321 for the base item research used.
 
--Omega Khalid / Golden Glitch for the thunder cloud textures
+-Golden Glitch for the thunder cloud textures
 
 -Perlite for the code
