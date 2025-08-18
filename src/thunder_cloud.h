@@ -119,7 +119,7 @@ typedef struct{
     u16 thunderBeat;
     u16 lastHitCounter;
     u16 chargeCounter;
-    u16 frameTime;
+    u16 age;
     u16 particleOffset;
     u16 texPtcTime;
     u16 texID;

@@ -115,7 +115,7 @@ void init_thunder_inst(it_thunder_inst_t* inst){
     inst->lastHitCounter = 0;
     inst->chargeCounter = 0;
     inst->thunderBeat = 25;
-    inst->frameTime = 0;
+    inst->age = 0;
     inst->texID = 0;
 };
 
@@ -123,21 +123,42 @@ void update_thunder_inst(it_thunder_inst_t* inst){
     /*
     ENTRY   : TC inst
     ROLE    : Sets the TC's X and Z position and prepares the Y position set by the current state of the TC. Also counts the age of the TC and executes the current TC state's function
-    VERSION : 2025AUG_02
+    VERSION : 2025AUG_03
     AUTHOR  : Perlite
     */
 
     void* driver = driver_getById((int)inst->targetDriverId);
+    u32 premature_killing = 0;
+
+    u32 flags = *(u32*)(driver + 0x48);
+    u32 flags2 = *(u32*)(driver + 0x4C);
+    premature_killing |= (flags  & 0x07810840); //flags and the flags we want
+    premature_killing |= (flags2 & 0x10010440); //flags2 and the flags we want
+
+    if (premature_killing && inst->stateMachine.curState == 0){ //if its shocking who gives a Fuck !!!!!! and the next state after the shock is dying so NOT PREMA !!
+        if (inst->particleEmitter[0]){
+            ptcm_killEmitter(&inst->particleEmitter[0]);
+            inst->particleEmitter[0] = NULL; //no need for particle[1] CUZ ITS DURING THE SHOCKING PART !!!!!!!! RAHHHHHH
+        }
+        sm_gotoState(&inst->stateMachine, 2);
+    }
+
     VecFx32* drivPos = (VecFx32*)(driver + 0x80);
     VecFx32* drivDir = (VecFx32*)(driver + 0x50);
     VecFx32 target = {0};
     VEC_MultAdd(FX32_CONST(8), drivDir, drivPos, &target);
 
+    if (inst->stateMachine.curState == 1){
+        target.x = drivPos->x;
+        target.y = drivPos->y;
+        target.z = drivPos->z;
+    } 
+
     inst->inst.position.x = inst->inst.position.x + FX_MUL(target.x - inst->inst.position.x, FX32_CONST(0.4));
     inst->preYPosition = inst->preYPosition + FX_MUL(target.y + FX32_CONST(32) - inst->preYPosition, FX32_CONST(0.4));
     inst->inst.position.z = inst->inst.position.z + FX_MUL(target.z - inst->inst.position.z, FX32_CONST(0.4));
 
-    inst->frameTime += 1;
+    inst->age += 1;
 
     sm_execute(&inst->stateMachine);
 };
@@ -156,7 +177,7 @@ void await_thunder_inst(it_thunder_inst_t* inst){
     /*
     ENTRY   : TC inst
     ROLE    : Handles the base state of the TC by emitting particles, changing its texture and making it move slightly verically and changing slightly its scale depending on the state's counters and the TC's age. Also makes the TC change state after some time
-    VERSION : 2025AUG_05
+    VERSION : 2025AUG_06
     AUTHOR  : Perlite
     */
 
@@ -173,14 +194,24 @@ void await_thunder_inst(it_thunder_inst_t* inst){
     }
 
     void* driver = driver_getById((int)inst->targetDriverId);
+    *(u32*)(driver + 0xDC) = FX32_CONST(1.1); //driver->speedMultiplier
 
-    inst->inst.position.y = inst->preYPosition + 2 * FX_SinIdx((u16)((inst->frameTime + 15) * 512));
-    inst->inst.scale.x = FX32_CONST(1.7) + (FX_CosIdx((u16)(inst->frameTime * 1024)) >> 4);
-    inst->inst.scale.y = FX32_CONST(1.7) + (FX_SinIdx((u16)(inst->frameTime * 1024)) >> 4);
+    inst->inst.position.y = inst->preYPosition + 2 * FX_SinIdx((u16)((inst->age + 15) * 512));
+    inst->inst.scale.x = FX32_CONST(1.7) + (FX_CosIdx((u16)(inst->age * 1024)) >> 4);
+    inst->inst.scale.y = FX32_CONST(1.7) + (FX_SinIdx((u16)(inst->age * 1024)) >> 4);
 
     u16 hitMask = *(u16*)(driver + 0x2B2);
     for (int id = 0; id < driver_sDriverCount; id++){
-        if (id != inst->targetDriverId && ((hitMask >> id) & 1) && inst->stateMachine.counter - inst->lastHitCounter > 30){
+
+        void* driver2 = driver_getById(id);
+        u32 non_transmitible = 0;
+
+        u32 flags = *(u32*)(driver2 + 0x48);
+        u32 flags2 = *(u32*)(driver2 + 0x4C);
+        non_transmitible |= (flags  & 0x07810840); //flags and the flags we want
+        non_transmitible |= (flags2 & 0x10010440); //flags2 and the flags we want
+
+        if (id != inst->targetDriverId && ((hitMask >> id) & 1) && inst->stateMachine.counter - inst->lastHitCounter > 30 && !non_transmitible){
             inst->targetDriverId = id;
             inst->lastHitCounter = inst->stateMachine.counter;
         }
@@ -249,12 +280,13 @@ void shock_thunder_inst(it_thunder_inst_t* inst){
     /*
     ENTRY   : TC inst
     ROLE    : Shocks the driver and changes the TC's texture
-    VERSION : 2025AUG_04
+    VERSION : 2025AUG_05
     AUTHOR  : Perlite
     */
 
     void* driver = driver_getById(inst->targetDriverId);
-    race_startDarkening();
+    if (inst->targetDriverId == Race_GetPlayerId())
+        race_startDarkening();
     
     driver_startThunderShrinkEffect(driver);
 
@@ -283,8 +315,8 @@ void shocking_thunder_inst(it_thunder_inst_t* inst){
     */
 
     inst->inst.position.y = inst->preYPosition;
-    inst->inst.scale.x = FX32_CONST(1.7) + (FX_CosIdx((u16)((inst->frameTime) * 4096)) >> 4);
-    inst->inst.scale.y = FX32_CONST(1.7) + (FX_SinIdx((u16)((inst->frameTime) * 4096)) >> 4);
+    inst->inst.scale.x = FX32_CONST(1.7) + (FX_CosIdx((u16)((inst->age) * 4096)) >> 4);
+    inst->inst.scale.y = FX32_CONST(1.7) + (FX_SinIdx((u16)((inst->age) * 4096)) >> 4);
 
     if (inst->stateMachine.counter > 75){
         if (inst->particleEmitter[0]){
