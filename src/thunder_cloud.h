@@ -1,6 +1,6 @@
 //FILE CREATED BY PERLITE ON 2025/08/12
-#include "mkds.h"
-
+#include "common.h"
+#include "mkds/driver.h"
 
 typedef struct
 {
@@ -149,7 +149,6 @@ extern void* ptcm_createFogOffEmitter(int, VecFx32*);
 extern void* ptcm_createEmitter(int, VecFx32*);
 extern void sfx_21090C4(void*,int,char,short);
 extern void sub_20F9114(it_item_inst_t*);
-extern void VEC_MultAdd(int, VecFx32*, VecFx32*, VecFx32*);
 extern void sub_20ED5C0(it_item_inst_t*, void*, VecFx32*);
 
 //Renaming of certain External Functions

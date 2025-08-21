@@ -1,5 +1,6 @@
 //FILE CREATED BY PERLITE ON 2025/08/12
 #include "thunder_cloud.h"
+#include "mkds/driver.h"
 
 #define ITEM_TERESA 11
 
@@ -69,27 +70,51 @@ it_item_def_t def_thunder_cloud = {
 char it_teresa_nsbmd[16] ="it_teresa.nsbmd";
 char it_teresa_nsbtp[16] ="it_teresa.nsbtp";
 asm(R"(
+    @---------------------------------------@
+    @-----------@AUTHOR: PERLITE@-----------@
+    @---------------------------------------@
+
+
+    .arm
+    @---------------------------------------@
+    @------@it_driverUpdateItemStatus@------@
+    @-------------@2025AUG_01@--------------@
+    @---------@Auto-launch the TC@----------@
+    @---------------------------------------@
+    ncp_jump(0x01FFF804)
+        CMP R3, #16
+        beq 0x01FFF83C
+        LDR     R0, =0x242
+        b 0x01FFF808
+
+
+
     .thumb
+    @---------------------------------------@
+    @----------@it_initItemConfig@----------@
+    @-------------@2025AUG_01@--------------@
+    @-------@Replace Teresa Config@---------@
+    @---------------------------------------@
     ncp_tcall(0x020F4D00)
         STR     R0, [R4]
         LDR     R5, =cfg_thunder_cloud
-
-       @ LDR     R0, =0x1C0
-        @ADDS    R4, R3, R0
-
         bx lr
 
-
+    @---------------------------------------@
+    @--------@items_initItemParams@---------@
+    @-------------@2025AUG_01@--------------@
+    @---------@Replace Teresa Def@----------@
+    @---------------------------------------@
     ncp_tcall(0x020F1BEC)
         LDR     R5, =def_thunder_cloud
         LDR     R0, =0x738
-
-       @ ADDS    R4, R2, R0
-        @MOVS    R3, #0x15
-
         bx lr
     
-    
+    @---------------------------------------@
+    @----------@it_loadAllModels@-----------@
+    @-------------@2025AUG_01@--------------@
+    @------@Add Teresa NSBTP Support@-------@
+    @---------------------------------------@
     ncp_tcall(0x020ED39C)
         ldr r0, =it_teresa_nsbmd
         ldr r1, =it_teresa_nsbtp
@@ -123,17 +148,15 @@ void update_thunder_inst(it_thunder_inst_t* inst){
     /*
     ENTRY   : TC inst
     ROLE    : Sets the TC's X and Z position and prepares the Y position set by the current state of the TC. Also counts the age of the TC and executes the current TC state's function
-    VERSION : 2025AUG_03
+    VERSION : 2025AUG_04
     AUTHOR  : Perlite
     */
 
-    void* driver = driver_getById((int)inst->targetDriverId);
+    driver_t* driver = driver_getById((int)inst->targetDriverId);
     u32 premature_killing = 0;
 
-    u32 flags = *(u32*)(driver + 0x48);
-    u32 flags2 = *(u32*)(driver + 0x4C);
-    premature_killing |= (flags  & 0x07810840); //flags and the flags we want
-    premature_killing |= (flags2 & 0x10010440); //flags2 and the flags we want
+    premature_killing |= (driver->flags  & (DRIVER_FLAGS_CANNON | DRIVER_FLAGS_BIT11 | DRIVER_FLAGS_IN_LOOP | DRIVER_FLAGS_DOSSUN_SMASH_CAM));
+    premature_killing |= (driver->flags2 & (DRIVER_FLAGS2_STAR_INVINCIBLE | DRIVER_FLAGS2_KILLER_MODE));
 
     if (premature_killing && inst->stateMachine.curState == 0){ //if its shocking who gives a Fuck !!!!!! and the next state after the shock is dying so NOT PREMA !!
         if (inst->particleEmitter[0]){
@@ -143,8 +166,8 @@ void update_thunder_inst(it_thunder_inst_t* inst){
         sm_gotoState(&inst->stateMachine, 2);
     }
 
-    VecFx32* drivPos = (VecFx32*)(driver + 0x80);
-    VecFx32* drivDir = (VecFx32*)(driver + 0x50);
+    VecFx32* drivPos = &driver->position;
+    VecFx32* drivDir = &driver->direction;
     VecFx32 target = {0};
     VEC_MultAdd(FX32_CONST(8), drivDir, drivPos, &target);
 
@@ -177,7 +200,7 @@ void await_thunder_inst(it_thunder_inst_t* inst){
     /*
     ENTRY   : TC inst
     ROLE    : Handles the base state of the TC by emitting particles, changing its texture and making it move slightly verically and changing slightly its scale depending on the state's counters and the TC's age. Also makes the TC change state after some time
-    VERSION : 2025AUG_06
+    VERSION : 2025AUG_07
     AUTHOR  : Perlite
     */
 
@@ -193,23 +216,21 @@ void await_thunder_inst(it_thunder_inst_t* inst){
         inst->texPtcTime -=1;
     }
 
-    void* driver = driver_getById((int)inst->targetDriverId);
-    *(u32*)(driver + 0xDC) = FX32_CONST(1.1); //driver->speedMultiplier
+    driver_t* driver = driver_getById((int)inst->targetDriverId);
+    driver->speedMultiplier = FX32_CONST(1.1); 
 
     inst->inst.position.y = inst->preYPosition + 2 * FX_SinIdx((u16)((inst->age + 15) * 512));
     inst->inst.scale.x = FX32_CONST(1.7) + (FX_CosIdx((u16)(inst->age * 1024)) >> 4);
     inst->inst.scale.y = FX32_CONST(1.7) + (FX_SinIdx((u16)(inst->age * 1024)) >> 4);
 
-    u16 hitMask = *(u16*)(driver + 0x2B2);
+    u16 hitMask = driver->driverHitMask;
     for (int id = 0; id < driver_sDriverCount; id++){
 
-        void* driver2 = driver_getById(id);
+        driver_t* driver2 = driver_getById(id);
         u32 non_transmitible = 0;
 
-        u32 flags = *(u32*)(driver2 + 0x48);
-        u32 flags2 = *(u32*)(driver2 + 0x4C);
-        non_transmitible |= (flags  & 0x07810840); //flags and the flags we want
-        non_transmitible |= (flags2 & 0x10010440); //flags2 and the flags we want
+        non_transmitible |= (driver2->flags  & (DRIVER_FLAGS_CANNON | DRIVER_FLAGS_BIT11 | DRIVER_FLAGS_IN_LOOP | DRIVER_FLAGS_DOSSUN_SMASH_CAM));
+        non_transmitible |= (driver2->flags2 & (DRIVER_FLAGS2_STAR_INVINCIBLE | DRIVER_FLAGS2_KILLER_MODE));
 
         if (id != inst->targetDriverId && ((hitMask >> id) & 1) && inst->stateMachine.counter - inst->lastHitCounter > 30 && !non_transmitible){
             inst->targetDriverId = id;
@@ -255,8 +276,9 @@ void use_thunder_inst(void* item_drag, it_thunder_inst_t* inst){
     it_init_item_inst_sound_emitter(inst);
 
     inst->targetDriverId = *(int*)(item_drag + 0x28);
-    void* driver = driver_getById(inst->targetDriverId);
-    VecFx32* drivPos = (VecFx32*)(driver + 0x80);
+    driver_t* driver = driver_getById(inst->targetDriverId);
+    VecFx32* drivPos = &driver->position;
+
     inst->inst.position.x = drivPos->x;
     inst->preYPosition = drivPos->y;
     inst->inst.position.y = drivPos->y;
@@ -284,7 +306,7 @@ void shock_thunder_inst(it_thunder_inst_t* inst){
     AUTHOR  : Perlite
     */
 
-    void* driver = driver_getById(inst->targetDriverId);
+    driver_t* driver = driver_getById(inst->targetDriverId);
     if (inst->targetDriverId == Race_GetPlayerId())
         race_startDarkening();
     
@@ -357,8 +379,8 @@ void callback_PcEm_stay_at_drv(void* emitter){
     it_thunder_inst_t* userWork = *(it_thunder_inst_t**)(emitter + 0x98);
     VecFx32* emit_pos =(VecFx32*)(emitter + 0x28);
 
-    void* driver = driver_getById((int)userWork->targetDriverId);
-    VecFx32* drivPos = (VecFx32*)(driver + 0x80);
+    driver_t* driver = driver_getById((int)userWork->targetDriverId);
+    VecFx32* drivPos = &driver->position;
 
     emit_pos->x = drivPos->x >> 4;
     emit_pos->y = drivPos->y >> 4;
@@ -387,8 +409,8 @@ void killing_thunder_inst(it_thunder_inst_t* inst){
     AUTHOR  : Perlite
     */
 
-    void* driver = driver_getById((int)inst->targetDriverId);
-    VecFx32* drivPos = (VecFx32*)(driver + 0x80);
+    driver_t* driver = driver_getById((int)inst->targetDriverId);
+    VecFx32* drivPos = &driver->position;
 
     inst->inst.position.y = inst->preYPosition;
     
