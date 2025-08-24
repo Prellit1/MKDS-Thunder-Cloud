@@ -148,7 +148,7 @@ void update_thunder_inst(it_thunder_inst_t* inst){
     /*
     ENTRY   : TC inst
     ROLE    : Sets the TC's X and Z position and prepares the Y position set by the current state of the TC. Also counts the age of the TC and executes the current TC state's function
-    VERSION : 2025AUG_04
+    VERSION : 2025AUG_05
     AUTHOR  : Perlite
     */
 
@@ -167,9 +167,9 @@ void update_thunder_inst(it_thunder_inst_t* inst){
     }
 
     VecFx32* drivPos = &driver->position;
-    VecFx32* drivDir = &driver->direction;
+    VecFx32* dir = &driver->forwardDir;
     VecFx32 target = {0};
-    VEC_MultAdd(FX32_CONST(8), drivDir, drivPos, &target);
+    VEC_MultAdd(FX32_CONST(8), dir, drivPos, &target);
 
     if (inst->stateMachine.curState == 1){
         target.x = drivPos->x;
